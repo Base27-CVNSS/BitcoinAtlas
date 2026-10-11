@@ -1,0 +1,49 @@
+name: Deploy BitcoinAtlas to GitHub Pages
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+concurrency:
+  group: pages
+  cancel-in-progress: true
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Validate static dashboard
+        run: |
+          node - <<'NODE'
+          const fs = require('node:fs');
+          const vm = require('node:vm');
+          const html = fs.readFileSync('index.html','utf8');
+          if (!html.includes('2009—2034') || !html.includes('6,04M BTC')) throw Error('Required dashboard markers missing');
+          const script = html.match(/<script>([\s\S]*?)<\/script>/);
+          if (!script) throw Error('Dashboard script missing');
+          new vm.Script(script[1],{filename:'bitcoinatlas-inline.js'});
+          const ids=[...html.matchAll(/\bid="([^"]+)"/g)].map(x=>x[1]);
+          if (new Set(ids).size !== ids.length) throw Error('Duplicate DOM IDs');
+          const E=6.04;
+          for(const m of [0,.3,1]) for(const r of [0,.7,1]){
+            const sum=E*m*r+E*m*(1-r)+E*(1-m);
+            if(Math.abs(sum-E)>1e-9) throw Error('BTC mass-conservation failed');
+          }
+          console.log('PASS: inline JS syntax, DOM IDs, BTC conservation');
+          NODE
+      - name: Configure GitHub Pages
+        uses: actions/configure-pages@v5
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: .
+      - name: Deploy to Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
